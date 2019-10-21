@@ -121,47 +121,7 @@ class GeoffPACAgent(BaseAgent):
         self.optimizer.step()
 
     def geoff_pac_update(self, s, a, mu_a, r, next_s, m):
-        config = self.config
-        self.learn_v_c_batch([s, a, mu_a, r, next_s, m])
-
-        prediction = self.network(s, a)
-        rho = prediction['pi_a'] / mu_a
-        rho = rho.detach().clamp(0, 2)
-
-        td_error = r + m * config.discount * self.target_network(next_s)['v'] - prediction['v']
-        td_error = td_error.detach()
-
-        c = prediction['c'].detach().clamp(0, 2)
-        self.F1 = m * config.discount * self.rho_prev * self.F1 + c
-        M1 = (1 - config.lam1) * c + config.lam1 * self.F1
-
-        I = self.grad_prev
-        I.mul(self.rho_prev * self.c_prev)
-        self.F2.mul(config.gamma_hat * self.rho_prev).add(I)
-
-        v = prediction['v'].detach()
-        M2 = I
-        F2 = self.F2.clone()
-        F2.mul(config.lam2)
-        M2.mul(1 - config.lam2).add(F2).mul(config.gamma_hat * v)
-
-        log_pi_a = prediction['log_pi_a'].squeeze(-1)
-        self.grad_prev = Grads(self.network, config.num_workers)
-        for i in range(config.num_workers):
-            self.optimizer.zero_grad()
-            log_pi_a[i].backward(retain_graph=True)
-            self.grad_prev.grads[i].add(self.network)
-
-        grad = self.grad_prev.clone()
-        grad.mul(rho * M1 * td_error.detach()).add(M2)
-        grad = grad.mean().mul(-1)
-
-        self.optimizer.zero_grad()
-        grad.assign(self.network)
-        self.optimizer.step()
-
-        self.rho_prev = rho
-        self.c_prev = c
+        pass
 
     def eval_step(self, state):
         with torch.no_grad():
