@@ -181,14 +181,14 @@ if __name__ == '__main__':
     random_seed()
     set_one_thread()
     select_device(-1)
-    batch_parameter_study()
+    # batch_parameter_study()
     # batch()
     # select_device(0)
 
     # game = 'CartPole-v0'
     # game = 'HalfCheetah-v2'
-    game = 'Reacher-v2'
-    # game = 'Hopper-v2'
+    # game = 'Reacher-v2'
+    game = 'Hopper-v2'
     # game = 'Swimmer-v2'
     # game = 'Walker2d-v2'
 

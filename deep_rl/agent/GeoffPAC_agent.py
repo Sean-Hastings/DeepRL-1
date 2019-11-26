@@ -37,90 +37,31 @@ class GeoffPACAgent(BaseAgent):
         action = [config.eval_env.action_space.sample() for _ in range(config.num_workers)]
         return np.asarray(action)
 
-    def learn_v_c_batch(self, transitions):
-        for i in range(self.config.vc_epochs):
-            self.learn_v_c(self.replay.sample())
-        self.learn_v_c(transitions)
-
-    def learn_v_c(self, transitions):
-        config = self.config
-        s, a, mu_a, r, next_s, m = transitions
-
-        prediction = self.network(s, a)
-        next_prediction = self.network(next_s)
-        prediction_target = self.target_network(s, a)
-        next_prediction_target = self.target_network(next_s)
-
-        rho = prediction['pi_a'] / mu_a
-        rho = rho.detach()
-
-        v_target = next_prediction_target['v']
-        v_target = r + config.discount * m * v_target
-        v_target = v_target.detach()
-        td_error = v_target - prediction['v']
-        # config.logger.add_histogram('v', prediction['v'])
-        # config.logger.add_histogram('c', prediction['c'])
-        # config.logger.add_histogram('rho', rho)
-        v_loss = td_error.pow(2).mul(0.5).mul(rho.clamp(0, 1)).mean()
-
-        c_target = config.gamma_hat * rho.clamp(0, 2) * prediction_target['c'] + 1 - config.gamma_hat
-        c_target = c_target.detach()
-        c_next = next_prediction['c'] * m
-
-        c_normalizer = (c_next.sum(-1).unsqueeze(-1) - c_next).mul(1 / (c_next.size(0) - 1)) - 1
-        c_normalizer = c_normalizer.detach() * c_next
-
-        c_loss = (c_target - c_next).pow(2).mul(0.5).mean() + config.c_coef * c_normalizer.mean()
-
-        self.optimizer.zero_grad()
-        (v_loss + c_loss).backward()
-        self.optimizer.step()
-
-    def off_pac_update(self, s, a, mu_a, r, next_s, m):
-        config = self.config
-        self.learn_v_c_batch([s, a, mu_a, r, next_s, m])
-
-        prediction = self.network(s, a)
-        with torch.no_grad():
-            target = self.target_network(next_s)['v']
-            target = r + config.discount * m * target
-            rho = prediction['pi_a'] / mu_a
-            rho = rho.clamp(0, 2)
-        td_error = target - prediction['v']
-        entropy = prediction['ent'].mean()
-        pi_loss = -rho * td_error.detach() * prediction['log_pi_a'] - config.entropy_weight * entropy
-        pi_loss = pi_loss.mean()
-
-        self.optimizer.zero_grad()
-        pi_loss.backward()
-        self.optimizer.step()
-
-    def ace_update(self, s, a, mu_a, r, next_s, m):
-        config = self.config
-        self.learn_v_c_batch([s, a, mu_a, r, next_s, m])
-
-        prediction = self.network(s, a)
-        with torch.no_grad():
-            target = self.target_network(next_s)['v']
-            target = r + config.discount * m * target
-            self.F1 = m * config.discount * self.rho_prev * self.F1 + 1
-            M = (1 - config.lam1) + config.lam1 * self.F1
-            rho = prediction['pi_a'] / mu_a
-            rho = rho.clamp(0, 2)
-
-        td_error = target - prediction['v']
-
-        entropy = prediction['ent'].mean()
-        pi_loss = -M * rho * td_error.detach() * prediction['log_pi_a'] - config.entropy_weight * entropy
-        pi_loss = pi_loss.mean()
-
-        self.rho_prev = rho
-
-        self.optimizer.zero_grad()
-        pi_loss.backward()
-        self.optimizer.step()
-
     def geoff_pac_update(self, s, a, mu_a, r, next_s, m):
+        # V and C networks are bundled together, so I'm gonna update both together by just summing the losses described in the paper (pseudocode)
+
+        ### Inputs from config object
+        gamma = self.config.discount
+        gamma_hat = self.config.gamma_hat
+        beta  = self.config.c_coef
+
+        ### Setup for update steps
+        rho_t = self.network(s, a)['pi_a'] / mu_a
+        # Detach target so we don't update it
+        delta_t = r + gamma * self.target_network(next_s)['v'].detach() - self.network(s)['v']
+        sn_loss = ? # https://arxiv.org/pdf/1901.09455.pdf ; section: Soft Ratio Normalization ; Equation 7?
+
+        ### Network update losses
+        # Note, I don't like that rho_t is in both of these. I think it should be detached in one of them to avoid cross-contamination
+        v_loss = rho_t * delta_t * delta_t
+        c_loss = ((gamma_hat * rho_t * self.target_network(s)['c'].detach() + (1 - gamma_hat) - self.network(next_s)['c'])**2 + beta * sn_loss)
+        full_network_loss = v_loss + c_loss
+
+        ### backprop + parameter update
+        self.optimizer.zero_grad()
+        full_network_loss.backward()
+        self.optimizer.step()
+
         pass
 
     def eval_step(self, state):
