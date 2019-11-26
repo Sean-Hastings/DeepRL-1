@@ -46,13 +46,14 @@ class GeoffPACAgent(BaseAgent):
         beta  = self.config.c_coef
 
         ### Setup for update steps
-        rho_t = self.network(s, a)['pi_a'] / mu_a
+        # Detached because it's actually from policy network, separate from both C and V networks
+        rho_t = self.network(s, a)['pi_a'].detach() / mu_a
         # Detach target so we don't update it
         delta_t = r + gamma * self.target_network(next_s)['v'].detach() - self.network(s)['v']
         sn_loss = ? # https://arxiv.org/pdf/1901.09455.pdf ; section: Soft Ratio Normalization ; Equation 7?
 
         ### Network update losses
-        # Note, I don't like that rho_t is in both of these. I think it should be detached in one of them to avoid cross-contamination
+        # Note: I don't like that rho_t is in both of these. I think it should be detached in one of them to avoid cross-contamination
         v_loss = rho_t * delta_t * delta_t
         c_loss = ((gamma_hat * rho_t * self.target_network(s)['c'].detach() + (1 - gamma_hat) - self.network(next_s)['c'])**2 + beta * sn_loss)
         full_network_loss = v_loss + c_loss
@@ -61,6 +62,8 @@ class GeoffPACAgent(BaseAgent):
         self.optimizer.zero_grad()
         full_network_loss.backward()
         self.optimizer.step()
+
+        # Note: rho_t was detached because it wasn't from the parameters being updated, but the parameters updated after this point do lead to it, so should it be recalculated and not detached??
 
         pass
 
